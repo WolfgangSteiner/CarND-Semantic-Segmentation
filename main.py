@@ -49,8 +49,12 @@ def get_label_file_name(img_file_name):
     return label_file_name
 
 
-def augment_image(img, gt_image):
-    return img, gt_image
+def augment_image(image, gt_image):
+    if random.random() > 0.5:
+        image = np.fliplr(image)
+        gt_image = np.fliplr(gt_image)
+
+    return image, gt_image
 
 
 def data_generator(file_list, batch_size, image_shape=[80,265], augment_images=False):
