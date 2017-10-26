@@ -37,8 +37,9 @@ else:
 def train_validation_split(data_dir, val_split=0.25):
     img_path = os.path.join(data_dir, "training", "image_2")
     img_files = glob.glob(os.path.join(img_path, "*.png"))
+    print("Found %d training images." % len(img_files))
     random.shuffle(img_files)
-    num_training = int(len(img_files) * val_split)
+    num_training = int(len(img_files) * (1.0 - val_split))
     return img_files[0:num_training], img_files[num_training:]
 
 
