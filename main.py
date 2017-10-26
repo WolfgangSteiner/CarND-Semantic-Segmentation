@@ -114,12 +114,16 @@ def custom_init(shape, dtype=tf.float32, partition_info=None, seed=0):
 
 
 def encoder(input):
-    return tf.layers.conv2d(input, NUM_CLASSES, 1, (1, 1))
+    return tf.layers.conv2d(
+	input, NUM_CLASSES, 1, (1, 1),
+	kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
 
 
 def decoder(input, factor):
     return tf.layers.conv2d_transpose(
-	input, NUM_CLASSES, factor, strides=(factor//2,factor//2), padding='same') 
+	input, NUM_CLASSES, factor, strides=(factor//2,factor//2), 
+	padding='same',
+	kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3)) 
 
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
@@ -197,7 +201,7 @@ def train_nn(
         images, labels = next(generator)
         return {input_image: images, correct_label: labels, keep_prob:0.5}
 
-    def eval_epoch(generator, num_batches, train_op=None):
+    def eval_epoch(generator, epoch, num_batches, train_op=None):
         loss = 0.0
         pb = ProgressBar(num_batches)
         for b in range(num_batches):
@@ -206,33 +210,31 @@ def train_nn(
                 args.append(train_op)
             result = sess.run(args, feed_dict=feed_dict(generator))
             loss += result[0] / num_batches
-            pb(b, message="%.4f" % loss)
+            pb(b, head="Epoch %03d:" % epoch, message="%.4f" % loss)
         return loss
 
     best_validation_loss = float('inf')
  
-    for i in range(epochs):
-        training_loss = eval_epoch(train_generator, num_train_batches, train_op)
-        validation_loss = eval_epoch(val_generator, num_val_batches)        
+    for epoch in range(epochs):
+        training_loss = eval_epoch(train_generator, epoch, num_train_batches, train_op)
+        validation_loss = eval_epoch(val_generator, epoch, num_val_batches)        
 
         if validation_loss < best_validation_loss:
-            print("Validation loss decreased to from %.4f to %.4f. Saving model." 
+            print("Validation loss decreased to from %.4f to %.4f." 
                     % (best_validation_loss, validation_loss))
             best_validation_loss = validation_loss
         else:
-            print("Validation loss: %.4f" % validation_loss)
+            print("Validation loss did not decrease: %.4f" % validation_loss)
 
 #tests.test_train_nn(train_nn)
 
 
 def run():
-    num_classes = 2
     image_shape = (160, 576)
     #image_shape = (80, 265)
     #image_shape = (40, 132)
     data_dir = './data'
     runs_dir = './runs'
-    batch_size = 4
     tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
@@ -243,8 +245,8 @@ def run():
     #  https://www.cityscapes-dataset.com/
 
     train, val = train_validation_split("data/data_road", val_split=0.2)
-    train_generator = data_generator(train, batch_size, image_shape=image_shape, augment_images=True)
-    val_generator = data_generator(val, batch_size, image_shape=image_shape, augment_images=False)
+    train_generator = data_generator(train, args.batch_size, image_shape=image_shape, augment_images=True)
+    val_generator = data_generator(val, args.batch_size, image_shape=image_shape, augment_images=False)
 
 
     with tf.Session() as sess:
@@ -258,9 +260,9 @@ def run():
 
         # TODO: Build NN using load_vgg, layers, and optimize function
         input_tensor, keep_prob, layer3_tensor, layer4_tensor, layer7_tensor = load_vgg(sess, './data/vgg')
-        out_layer = layers(layer3_tensor, layer4_tensor, layer7_tensor, num_classes)
-        labels_tensor = tf.placeholder(tf.float32, shape=[None, None, None, num_classes])
-        logits, train_op, loss = optimize(out_layer, labels_tensor, num_classes)
+        out_layer = layers(layer3_tensor, layer4_tensor, layer7_tensor, NUM_CLASSES)
+        labels_tensor = tf.placeholder(tf.float32, shape=[None, None, None, NUM_CLASSES])
+        logits, train_op, loss = optimize(out_layer, labels_tensor, NUM_CLASSES)
         learning_rate = tf.placeholder(tf.float32) 
 
         sess.run(tf.global_variables_initializer())
@@ -278,7 +280,7 @@ def run():
             keep_prob, learning_rate)
 
         # TODO: Save inference data using helper.save_inference_samples
-        #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_tensor)
 
         # OPTIONAL: Apply the trained model to a video
 

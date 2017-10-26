@@ -18,7 +18,8 @@ class ProgressBar(object):
         return float(i+1) / self.num_iterations
 
 
-    def __call__(self, i, message=None):
+    def __call__(self, i, message=None, head=None):
+        array = []
         percent = self.percent(i)
         dots = int(percent * self.length)
         iterations_left = self.num_iterations - i - 1
@@ -30,6 +31,8 @@ class ProgressBar(object):
         seconds_remaining = int(time_remaining) % 60
         eta_str = "%02d:%02d" % (minutes_remaining, seconds_remaining)
 
+        if head:
+            array.append(head)
 
         if percent < 1.0:
             bar_length = max(dots - 1,0)
@@ -37,15 +40,21 @@ class ProgressBar(object):
         else:
             bar = '[' + '='*self.length + ']'
 
-        bar += "  %d/%d %s" % (i+1,self.num_iterations,self.unit)
-        
+        array.append(bar)
+        array.append("%d/%d %s" % (i+1,self.num_iterations,self.unit))
+        if self.unit:
+            array.append(self.unit)        
+
         if percent < 1.0:
-            bar += " ETA: %s" % eta_str
+            array.append("ETA: %s" % eta_str)
         else:
             total_time = int(time.time() - self.start_time) 
-            bar += " TIME: %02d:%02d" % (total_time//60, total_time % 60)
+            array.append("TIME: %02d:%02d" % (total_time//60, total_time % 60))
 
-        sys.stdout.write('\r' + bar + " " + message)
+        if message:
+            array.append(message)
+
+        sys.stdout.write('\r' + " ".join(array))
         sys.stdout.flush()
         if i == self.num_iterations - 1:
             print("")
