@@ -17,6 +17,11 @@ parser.add_argument('--batch_size', default=16, type=int, help="batch size")
 parser.add_argument('--learning_rate', default=0.001, type=float, help="initial learning rate")
 args = parser.parse_args()
 
+################################################################################
+# 			       GLOBAL CONSTANTS                                #
+################################################################################
+NUM_CLASSES=2
+
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
@@ -103,6 +108,15 @@ def custom_init(shape, dtype=tf.float32, partition_info=None, seed=0):
     return tf.random_normal(shape, dtype=dtype, seed=seed)
 
 
+def encoder(input):
+    return tf.layers.conv2d(input, NUM_CLASSES, 1, (1, 1))
+
+
+def decoder(input, factor):
+    return tf.layers.conv2d_transpose(
+	input, NUM_CLASSES, factor, strides=(factor//2,factor//2), padding='same') 
+
+
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
@@ -112,14 +126,14 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
-    conv3 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, (1, 1))
-    conv4 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, (1, 1))
-    conv7 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, (1, 1))
-    deconv1 = tf.layers.conv2d_transpose(conv7, num_classes, 4, strides=(2, 2))
+    conv3 = encoder(vgg_layer3_out)
+    conv4 = encoder(vgg_layer4_out)
+    conv7 = encoder(vgg_layer7_out)
+    deconv1 = decoder(conv7, 4)
     sum1 = tf.add(conv4, deconv1)
-    deconv2 = tf.layers.conv2d_transpose(sum1, num_classes, 4, strides=(2, 2))
+    deconv2 = decoder(sum1, 4)
     sum2 = tf.add(conv3, deconv2)
-    return tf.layers.conv2d_transpose(sum2, num_classes, 16, strides=(8, 8))
+    return decoder(sum2, 16) 
 
 tests.test_layers(layers)
 
