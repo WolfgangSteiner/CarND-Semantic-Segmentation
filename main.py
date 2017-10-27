@@ -13,8 +13,9 @@ import scipy
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=10, type=int, help="number of epochs for training")
-parser.add_argument('--batch_size', default=16, type=int, help="batch size")
+parser.add_argument('--batch_size', default=4, type=int, help="batch size")
 parser.add_argument('--learning_rate', default=0.001, type=float, help="initial learning rate")
+parser.add_argument('--freeze_vgg', action="store_true", help="freeze vgg during training")
 args = parser.parse_args()
 
 ################################################################################
@@ -53,7 +54,6 @@ def augment_image(image, gt_image):
     if random.random() > 0.5:
         image = np.fliplr(image)
         gt_image = np.fliplr(gt_image)
-
     return image, gt_image
 
 
@@ -98,15 +98,20 @@ def load_vgg(sess, vgg_path):
     #   Use tf.saved_model.loader.load to load the model and weights
     vgg_tag = 'vgg16'
     graph = tf.saved_model.loader.load(sess, [vgg_tag], vgg_path)
-    vgg_input_tensor = sess.graph.get_tensor_by_name('image_input:0')
-    vgg_keep_prob_tensor = sess.graph.get_tensor_by_name('keep_prob:0')
-    vgg_layer3_out_tensor = sess.graph.get_tensor_by_name('layer3_out:0')
-    vgg_layer4_out_tensor = sess.graph.get_tensor_by_name('layer4_out:0')
-    vgg_layer7_out_tensor = sess.graph.get_tensor_by_name('layer7_out:0')
+    vgg_input = sess.graph.get_tensor_by_name('image_input:0')
+    vgg_keep_prob = sess.graph.get_tensor_by_name('keep_prob:0')
+    vgg_layer3_out = sess.graph.get_tensor_by_name('layer3_out:0')
+    vgg_layer4_out = sess.graph.get_tensor_by_name('layer4_out:0')
+    vgg_layer7_out = sess.graph.get_tensor_by_name('layer7_out:0')
+    
+    if args.freeze_vgg:
+        vgg_layer3_out = tf.stop_gradient(vgg_layer3_out)
+        vgg_layer4_out = tf.stop_gradient(vgg_layer4_out)
+        vgg_layer7_out = tf.stop_gradient(vgg_layer7_out)
 
-    return vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, vgg_layer4_out_tensor, vgg_layer7_out_tensor
+    return vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out
 
-tests.test_load_vgg(load_vgg, tf)
+#tests.test_load_vgg(load_vgg, tf)
 
 
 def custom_init(shape, dtype=tf.float32, partition_info=None, seed=0):
@@ -123,7 +128,7 @@ def decoder(input, factor):
     return tf.layers.conv2d_transpose(
 	input, NUM_CLASSES, factor, strides=(factor//2,factor//2), 
 	padding='same',
-	kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3)) 
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
 
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
@@ -199,7 +204,7 @@ def train_nn(
 
     def feed_dict(generator):
         images, labels = next(generator)
-        return {input_image: images, correct_label: labels, keep_prob:0.5}
+        return {input_image: images, correct_label: labels, keep_prob:0.75}
 
     def eval_epoch(generator, epoch, num_batches, train_op=None):
         loss = 0.0
@@ -210,21 +215,15 @@ def train_nn(
                 args.append(train_op)
             result = sess.run(args, feed_dict=feed_dict(generator))
             loss += result[0] / num_batches
-            pb(b, head="Epoch %03d:" % epoch, message="%.4f" % loss)
+            pb(b, head="Epoch %03d:" % epoch, message="LOSS: %.4f" % loss)
         return loss
 
-    best_validation_loss = float('inf')
+    #best_validation_loss = float('inf')
  
     for epoch in range(epochs):
         training_loss = eval_epoch(train_generator, epoch, num_train_batches, train_op)
-        validation_loss = eval_epoch(val_generator, epoch, num_val_batches)        
+        #validation_loss = eval_epoch(val_generator, epoch, num_val_batches)        
 
-        if validation_loss < best_validation_loss:
-            print("Validation loss decreased to from %.4f to %.4f." 
-                    % (best_validation_loss, validation_loss))
-            best_validation_loss = validation_loss
-        else:
-            print("Validation loss did not decrease: %.4f" % validation_loss)
 
 #tests.test_train_nn(train_nn)
 
@@ -244,9 +243,10 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
-    train, val = train_validation_split("data/data_road", val_split=0.2)
+    train, val = train_validation_split("data/data_road", val_split=0.0)
     train_generator = data_generator(train, args.batch_size, image_shape=image_shape, augment_images=True)
-    val_generator = data_generator(val, args.batch_size, image_shape=image_shape, augment_images=False)
+    val_generator = None    
+#val_generator = data_generator(val, args.batch_size, image_shape=image_shape, augment_images=False)
 
 
     with tf.Session() as sess:
