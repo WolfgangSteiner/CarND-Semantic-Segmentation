@@ -16,6 +16,7 @@ parser.add_argument('--epochs', default=10, type=int, help="number of epochs for
 parser.add_argument('--batch_size', default=4, type=int, help="batch size")
 parser.add_argument('--learning_rate', default=0.001, type=float, help="initial learning rate")
 parser.add_argument('--freeze_vgg', action="store_true", help="freeze vgg during training")
+parser.add_argument('--regularize', action="store_true", help="use l2 regularization")
 args = parser.parse_args()
 
 ################################################################################
@@ -60,7 +61,6 @@ def augment_image(image, gt_image):
 def data_generator(file_list, batch_size, image_shape=[80,265], augment_images=False):
     idx = 0
     background_color = np.array([255, 0, 0])
-    scipy_image_shape = (image_shape[1], image_shape[0])
 
     while True:
         images = []
@@ -70,8 +70,8 @@ def data_generator(file_list, batch_size, image_shape=[80,265], augment_images=F
             img_file_name = file_list[idx]
             gt_file_name = get_label_file_name(img_file_name)
 
-            image = scipy.misc.imresize(scipy.misc.imread(img_file_name), scipy_image_shape)
-            gt_image = scipy.misc.imresize(scipy.misc.imread(gt_file_name), scipy_image_shape)
+            image = scipy.misc.imresize(scipy.misc.imread(img_file_name), image_shape)
+            gt_image = scipy.misc.imresize(scipy.misc.imread(gt_file_name), image_shape)
 
             gt_bg = np.all(gt_image == background_color, axis=2)
             gt_bg = gt_bg.reshape(*gt_bg.shape, 1)
@@ -111,7 +111,9 @@ def load_vgg(sess, vgg_path):
 
     return vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out
 
-#tests.test_load_vgg(load_vgg, tf)
+
+if not args.freeze_vgg:
+    tests.test_load_vgg(load_vgg, tf)
 
 
 def custom_init(shape, dtype=tf.float32, partition_info=None, seed=0):
@@ -119,16 +121,16 @@ def custom_init(shape, dtype=tf.float32, partition_info=None, seed=0):
 
 
 def encoder(input):
-    return tf.layers.conv2d(
-	input, NUM_CLASSES, 1, (1, 1),
-	kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+    regularizer = tf.contrib.layers.l2_regularizer(1e-3) if args.regularize else None
+    return tf.layers.conv2d(input, NUM_CLASSES, 1, (1, 1), kernel_regularizer=regularizer)
 
 
 def decoder(input, factor):
+    regularizer = tf.contrib.layers.l2_regularizer(1e-3) if args.regularize else None
     return tf.layers.conv2d_transpose(
 	input, NUM_CLASSES, factor, strides=(factor//2,factor//2), 
 	padding='same',
-        kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+        kernel_regularizer=regularizer)
 
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
@@ -176,7 +178,6 @@ def train_nn(
     sess,
     epochs, batch_size,
     train_generator, num_train,
-    val_generator, num_val,
     train_op, cross_entropy_loss,
     input_image, correct_label,
     keep_prob, learning_rate):
@@ -200,7 +201,6 @@ def train_nn(
         'current_training_loss', current_training_loss)
 
     num_train_batches = (num_train // batch_size) + (num_train % batch_size > 0)
-    num_val_batches = (num_val // batch_size) + (num_val % batch_size > 0)
 
     def feed_dict(generator):
         images, labels = next(generator)
@@ -214,15 +214,12 @@ def train_nn(
             if train_op is not None:
                 args.append(train_op)
             result = sess.run(args, feed_dict=feed_dict(generator))
-            loss += result[0] / num_batches
+            loss += (result[0] / num_batches)
             pb(b, head="Epoch %03d:" % epoch, message="LOSS: %.4f" % loss)
         return loss
 
-    #best_validation_loss = float('inf')
- 
     for epoch in range(epochs):
-        training_loss = eval_epoch(train_generator(batch_size), epoch, num_train_batches, train_op)
-        #validation_loss = eval_epoch(val_generator, epoch, num_val_batches)        
+        training_loss = eval_epoch(train_generator, epoch, num_train_batches, train_op)
 
 
 #tests.test_train_nn(train_nn)
@@ -230,36 +227,18 @@ def train_nn(
 
 def run():
     image_shape = (160, 576)
-    #image_shape = (80, 265)
-    #image_shape = (40, 132)
     data_dir = './data'
     runs_dir = './runs'
     tests.test_for_kitti_dataset(data_dir)
 
-    # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
 
-    # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
-    # You'll need a GPU with at least 10 teraFLOPS to train on.
-    #  https://www.cityscapes-dataset.com/
-
-    train, val = train_validation_split("data/data_road", val_split=0.0)
+    train, _ = train_validation_split("data/data_road", val_split=0.0)
     train_generator = data_generator(train, args.batch_size, image_shape=image_shape, augment_images=True)
-    val_generator = None    
-    get_batches_fn = helper.gen_batch_function("data/data_road", image_shape)
-#val_generator = data_generator(val, args.batch_size, image_shape=image_shape, augment_images=False)
-
 
     with tf.Session() as sess:
-        # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
-        # Create function to get batches
-        get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
 
-        # OPTIONAL: Augment Images for better results
-        #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
-
-        # TODO: Build NN using load_vgg, layers, and optimize function
         input_tensor, keep_prob, layer3_tensor, layer4_tensor, layer7_tensor = load_vgg(sess, './data/vgg')
         out_layer = layers(layer3_tensor, layer4_tensor, layer7_tensor, NUM_CLASSES)
         labels_tensor = tf.placeholder(tf.float32, shape=[None, None, None, NUM_CLASSES])
@@ -269,21 +248,15 @@ def run():
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
 
-
-        # TODO: Train NN using the train_nn function
         train_nn(
             sess,
             args.epochs, args.batch_size,
-            get_batches_fn, len(train),
-            val_generator, len(val),
+            train_generator, len(train),
             train_op, loss,
             input_tensor, labels_tensor,
             keep_prob, learning_rate)
 
-        # TODO: Save inference data using helper.save_inference_samples
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_tensor)
-
-        # OPTIONAL: Apply the trained model to a video
 
 
 if __name__ == '__main__':
