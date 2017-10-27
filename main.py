@@ -221,7 +221,7 @@ def train_nn(
     #best_validation_loss = float('inf')
  
     for epoch in range(epochs):
-        training_loss = eval_epoch(train_generator, epoch, num_train_batches, train_op)
+        training_loss = eval_epoch(train_generator(batch_size), epoch, num_train_batches, train_op)
         #validation_loss = eval_epoch(val_generator, epoch, num_val_batches)        
 
 
@@ -246,6 +246,7 @@ def run():
     train, val = train_validation_split("data/data_road", val_split=0.0)
     train_generator = data_generator(train, args.batch_size, image_shape=image_shape, augment_images=True)
     val_generator = None    
+    get_batches_fn = helper.gen_batch_function("data/data_road", image_shape)
 #val_generator = data_generator(val, args.batch_size, image_shape=image_shape, augment_images=False)
 
 
@@ -273,7 +274,7 @@ def run():
         train_nn(
             sess,
             args.epochs, args.batch_size,
-            train_generator, len(train),
+            get_batches_fn, len(train),
             val_generator, len(val),
             train_op, loss,
             input_tensor, labels_tensor,
