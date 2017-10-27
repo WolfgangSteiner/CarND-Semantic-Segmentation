@@ -12,11 +12,11 @@ import numpy as np
 import scipy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', default=10, type=int, help="number of epochs for training")
-parser.add_argument('--batch_size', default=4, type=int, help="batch size")
+parser.add_argument('--epochs', default=64, type=int, help="number of epochs for training")
+parser.add_argument('--batch_size', default=32, type=int, help="batch size")
 parser.add_argument('--learning_rate', default=0.001, type=float, help="initial learning rate")
-parser.add_argument('--freeze_vgg', action="store_true", help="freeze vgg during training")
-parser.add_argument('--regularize', action="store_true", help="use l2 regularization")
+parser.add_argument('--freeze_vgg', action="store_true", default=True, help="freeze vgg during training")
+parser.add_argument('--regularize', action="store_true", default=True, help="use l2 regularization")
 args = parser.parse_args()
 
 ################################################################################
