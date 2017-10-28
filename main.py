@@ -12,12 +12,17 @@ import numpy as np
 import scipy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', default=64, type=int, help="number of epochs for training")
-parser.add_argument('--batch_size', default=32, type=int, help="batch size")
-parser.add_argument('--learning_rate', default=0.001, type=float, help="initial learning rate")
-parser.add_argument('--freeze_vgg', action="store_true", default=True, help="freeze vgg during training")
-parser.add_argument('--regularize', action="store_true", default=True, help="use l2 regularization")
+parser.add_argument('--epochs', default=25, type=int, help="number of epochs for training")
+parser.add_argument('--batch_size', default=1, type=int, help="batch size")
+parser.add_argument('--learning_rate', default=0.0001, type=float, help="initial learning rate")
+parser.add_argument('--freeze_vgg',  action="store_true", default=False, help="freeze vgg during training")
+parser.add_argument('--regularize', action="store_true", default=False, help="use l2 regularization")
+parser.add_argument('--keep_prob', default=0.75, type=float, help="keep probability")
 args = parser.parse_args()
+
+print(args)
+
+
 
 ################################################################################
 # 			       GLOBAL CONSTANTS                                #
@@ -116,13 +121,18 @@ if not args.freeze_vgg:
     tests.test_load_vgg(load_vgg, tf)
 
 
-def custom_init(shape, dtype=tf.float32, partition_info=None, seed=0):
-    return tf.random_normal(shape, dtype=dtype, seed=seed)
+def custom_init(stddev=0.01):
+   return None
+   # Using the following initialization method, as suggested in the last review,
+   # results in no usable segmenation at all!	
+   # return tf.truncated_normal_initializer(stddev)
 
 
 def encoder(input):
     regularizer = tf.contrib.layers.l2_regularizer(1e-3) if args.regularize else None
-    return tf.layers.conv2d(input, NUM_CLASSES, 1, (1, 1), kernel_regularizer=regularizer)
+    return tf.layers.conv2d(input, NUM_CLASSES, 1, (1, 1),
+        kernel_regularizer=regularizer,
+        kernel_initializer=custom_init())
 
 
 def decoder(input, factor):
@@ -130,7 +140,8 @@ def decoder(input, factor):
     return tf.layers.conv2d_transpose(
 	input, NUM_CLASSES, factor, strides=(factor//2,factor//2), 
 	padding='same',
-        kernel_regularizer=regularizer)
+        kernel_regularizer=regularizer,
+        kernel_initializer=custom_init())
 
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
@@ -204,7 +215,7 @@ def train_nn(
 
     def feed_dict(generator):
         images, labels = next(generator)
-        return {input_image: images, correct_label: labels, keep_prob:0.75}
+        return {input_image: images, correct_label: labels, keep_prob:args.keep_prob}
 
     def eval_epoch(generator, epoch, num_batches, train_op=None):
         loss = 0.0
